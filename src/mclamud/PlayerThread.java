@@ -154,6 +154,20 @@ public class PlayerThread implements Runnable {
                         default:
                             break;
                     }
+                    break;
+                case "yell":
+                    //System.out.println(tokens.length);
+                    switch (tokens.length) {
+                         case 2:
+                            World.sendMessageToWorld(player,tokens[1]);
+                            break;
+                        case 3:
+                            World.sendMessageToWorld(player,tokens[1] + " " + tokens[2]);
+                            break;
+                        default:
+                            break;
+                    }
+                    break;
                 case "whisper":
                 case "/w":
                     if(tokens.length > 2)
