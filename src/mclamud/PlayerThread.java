@@ -25,11 +25,13 @@ public class PlayerThread implements Runnable {
         try {
             in = new Scanner(psock.getInputStream(),"ISO-8859-1");
             out = new PrintWriter(psock.getOutputStream(), true);
-            out.println("\u001B[33m"+"Welcome to the world of Javania!"+"\u001B[0m");
+            out.println("\u001B[31m"+"Entering Sh'aide");
+            out.println("\u001B[33m"+"Pop: declining"+"\u001B[0m");
             if (!playerLogin(in, out)){ // Failed login
                 exit = true;
                 exitPlayer();
             } else { //Successful login.
+                Server.curUsers.add(player);
                 World.movePlayer(player, player.location);
                 World.sendMessageToArea(player, player.name + " has arrived.");
                 World.displayArea(player.location, player);
@@ -64,8 +66,14 @@ public class PlayerThread implements Runnable {
     private boolean commandDispatcher(String command, PrintWriter out){
         boolean exitFlag = false;
         command = command.trim();
+        String[] tokens= {};
         if (command.length() > 0){
-            String[] tokens = command.split(" ", 2);
+            if(command.length() > 2)
+                tokens = command.split(" ", 3);
+            else if(command.length() <= 2)
+                tokens = command.split(" ",2);
+            else
+                tokens[0] = command;
             switch(tokens[0].toLowerCase()){
                 case "walk":
                 case "go":
@@ -81,8 +89,102 @@ public class PlayerThread implements Runnable {
                         out.println("Command format is: walk/go <direction>");
                     }
                     break;
+                case "describe":
+                    if (tokens.length > 1){
+                        player.description = "";
+                        for(int i = 1; i < tokens.length; i++){
+                            player.description += tokens[i] + " ";
+                        }
+                        World.writePlayer(player);
+                    }
+                    else
+                        World.helpMe(out,tokens[0],true);
+                    break;  
+                case "look":
+                case "/l":
+                    switch (tokens.length) {
+                        case 1:
+                            World.displayArea(player.location, player);
+                            break;
+                        case 2:
+                            switch (tokens[1]){
+                                case "north":
+                                case "n":
+                                case "south":
+                                case "s":
+                                case "west":
+                                case "w":
+                                case "east":
+                                case "e":
+                                case "up":
+                                case "u":
+                                case "down":
+                                case "d":
+                                    World.doLook(out, player,tokens[1]);
+                                    break ;
+                                default:
+                                    Area a = World.areaMap.get(player.location);
+                                    for (Player x : a.players.values()){
+                                        if (x.name.equalsIgnoreCase(tokens[1])){
+                                            out.println(x.description);
+                                        }
+                                        else
+                                            World.helpMe(out,tokens[0],true);
+                                    }
+                                    break;
+                            }
+                        default:
+                            World.helpMe(out,tokens[0],true);
+                            break;
+                    }
+                    break;
+                case "inventory":
+                case "/i":
+                    World.listInventory(out, player);
+                    break;
+                case "say":
+                    //System.out.println(tokens.length);
+                    switch (tokens.length) {
+                         case 2:
+                            World.sendMessageToArea(player,tokens[1]);
+                            break;
+                        case 3:
+                            World.sendMessageToArea(player,tokens[1] + " " + tokens[2]);
+                            break;
+                        default:
+                            break;
+                    }
+                case "whisper":
+                case "/w":
+                    if(tokens.length > 2)
+                        World.sendMessageToPlayer(player,tokens[1],tokens[2]);
+                    break;  
+                case "emote":
+                case "/e":
+                    if(tokens.length > 2)
+                        World.sendEmotetoPlayer(player,tokens[1],tokens[2]);
+                    break; 
+                case "get":
+                case "take":
+                    if(tokens.length > 1 )
+                        World.getItem(tokens[1], player);
+                    World.writePlayer(player);
+                    World.displayArea(player.location, player);
+                    break;    
+                case "drop":
+                    if(tokens.length > 1 && player.inventory.contains(tokens[1]))
+                        World.dropItem(tokens[1], player);
+                    World.writePlayer(player);
+                    World.displayArea(player.location, player);
+                    break; 
+                case "save":
+                    World.writePlayer(player);
+                    out.println("Player Saved...");
+                    World.displayArea(player.location, player);
+                    break; 
                 case "exit":
                 case "quit":
+                    World.writePlayer(player);
                     exitFlag = true;
                     break;
                 default:
@@ -91,6 +193,7 @@ public class PlayerThread implements Runnable {
         }
         return exitFlag;
     }
+    
     private boolean playerLogin(Scanner in, PrintWriter out){
         boolean outcome = false;
         boolean exit = false;
@@ -127,7 +230,9 @@ public class PlayerThread implements Runnable {
                         playerPassword = in.nextLine();
                         boolean goodPassword = true;  //Check password
                         if (goodPassword){
+                            Player x = World.loadPlayer(playerName);
                             player.name = playerName;
+                            player.inventory.addAll(x.inventory);
                             validPassword = true;
                             outcome = true;
                             exit = true;
@@ -151,8 +256,10 @@ public class PlayerThread implements Runnable {
                             out.flush();
                             playerPassword = in.nextLine();
                             if (World.isValidPassword(playerPassword)){
+                                Player x = World.loadPlayer(playerName);
                                 player.name = playerName;
                                 player.password = playerPassword;
+                                player.inventory.addAll(x.inventory);
                                 World.writePlayer(player);
                                 validPassword = true;
                                 outcome = true;

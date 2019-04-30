@@ -4,6 +4,7 @@ import java.io.*;
 import java.net.Socket; //new
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -11,7 +12,7 @@ public class World {
     private final static int MIN_PASSWORD_LENGTH = 8;
     private final static int MIN_PLAYERNAME_LENGTH = 3;
     private final static int MAX_PLAYERNAME_LENGTH = 15;
-    private final static int NUMBER_DIRECTIONS = 4; //for example: N,S,E,W
+    private final static int NUMBER_DIRECTIONS = 6;
     public static Map<Integer, Area>areaMap = new HashMap<>();
     
     /************************************************************************
@@ -32,7 +33,7 @@ public class World {
             }
 
             if (outcome && out != null){
-                String[] portals = {"north","south","east","west"};   
+                String[] portals = {"north","south","east","west","up","down"};   
                 out.println(a.title.trim());
                 out.println(a.description);
 
@@ -44,6 +45,10 @@ public class World {
                     }
                 }
                 out.print("\n");
+                
+                String itemsAvail ="Items available: ";
+                itemsAvail = a.items.stream().filter((x) -> (!x.equals(""))).map((x) -> x + " ").reduce(itemsAvail, String::concat);
+                out.println(itemsAvail);
                 
                 //List the players in the area, excluding self
                 for (Player areaPlayers : a.players.values()){
@@ -107,6 +112,13 @@ public class World {
                             a.exits[i] = Integer.parseInt(exits[i]);
                         }
                         break;
+                    case "items":
+                        String[] items = value.trim().split("\\s*,\\s*");
+                        a.items.addAll(Arrays.asList(items));
+                        break;    
+                    case "id":
+                        a.ID = value.trim();
+                        break;    
                     default:
                 }
             } while(indexNext >= 0);
@@ -171,12 +183,93 @@ public class World {
                 pw.println("[name]" + p.name);
                 pw.println("[password]" + passwordHash);
                 pw.println("[location]" + String.valueOf(p.location));
+                pw.print("[inventory] ");
+                for(int i=0;i < p.inventory.size();i++){
+                    pw.print(p.inventory.get(i));
+                    if(i != p.inventory.size())
+                        pw.print(",");
+                }
             }
         } catch(FileNotFoundException | UnsupportedEncodingException e){
             outcome = false;
             System.out.println("An error occurred writing " + path + ".");
         }
         return outcome;
+    }
+    
+    private synchronized static boolean writeArea(Area a){
+        boolean outcome = true;  
+        String path = "areas/" + a.ID.concat(".area").toLowerCase();
+        File f = new File(path);
+        try{
+            try (PrintWriter pw = new PrintWriter(f, "UTF-8")) {
+                pw.println("[title]" + a.title);
+                pw.println("[description]" + a.description);
+                pw.println("[items]" + a.items);
+                pw.println("[exits]" + a.exits);
+            }
+        } catch(FileNotFoundException | UnsupportedEncodingException e){
+            outcome = false;
+            System.out.println("An error occurred writing " + path + ".");
+        }
+        return outcome;
+    }    
+    
+    private synchronized static Player readPlayerFromFile(String pName){
+        Socket sock = null;
+        Player p = new Player(sock);
+        String contents = null;
+        String playerFile = "players/" + pName + ".player";
+        File file = new File(playerFile);
+        try{    
+            if (file.exists()){
+                contents = new String(Files.readAllBytes(Paths.get(playerFile)));
+            } else {
+                System.out.println("NULL PLAYER LOADED");
+                p = null;
+                contents = null;
+            }
+        }
+        catch(IOException e){
+            System.out.println("An error occurred reading " + playerFile + ".");
+        }
+        if (p != null && contents != null){
+            int indexNext;
+            do {
+                int indexStart = contents.indexOf("[");
+                int indexEnd = contents.indexOf("]");
+                String name = contents.substring(indexStart + 1, indexEnd).toLowerCase();
+                indexNext = contents.indexOf("[", indexStart + 1);
+                String value;
+                if (indexNext < 0){
+                    contents = contents.substring(indexEnd + 1);
+                    value = contents;
+                } else {
+                    value = contents.substring(indexEnd + 1, indexNext);
+                    contents = contents.substring(indexNext);
+                }
+                switch(name){
+                    case "description":
+                        p.description = value.trim();
+                        break;
+                    case "name":
+                        p.name = value.trim();
+                        break;    
+                    case "password":
+                        p.password = value.trim();
+                        break;
+                    case "location":
+                        p.location = Integer.parseInt(value.trim());
+                        break;
+                    case "inventory":
+                        String[] items = value.trim().split("\\s*,\\s*");
+                        p.inventory.addAll(Arrays.asList(items));
+                        break;
+                    default:
+                }
+            } while(indexNext >= 0);
+        }
+    return p;
     }
     
     /************************************************************************
@@ -267,8 +360,8 @@ public class World {
  */
     public synchronized static boolean doWalk(Player p, String direction){
         boolean outcome = false;
-        String[] dirList = {"north","south","east","west"};
-        String[] dirAbbr = {"n","s","e","w"};
+        String[] dirList = {"north","south","east","west","up","down"};
+        String[] dirAbbr = {"n","s","e","w","u","d"};
         int areaIndex = -1;
         direction = direction.trim().toLowerCase();
         for (int i = 0; i < NUMBER_DIRECTIONS; i++){
@@ -313,4 +406,230 @@ public class World {
         }
         return outcome;
     }
+    
+    public synchronized static boolean sendMessageToWorld(Player p, String message){ //new
+        boolean outcome = true;
+        PrintWriter out;
+        for (Player x : Server.curUsers){
+                try {
+                    Socket psock = x.socket;
+                    out = new PrintWriter(psock.getOutputStream(), true);
+                    out.println(p.name + " ]--> " + message);
+                    } catch (IOException e) {
+                        outcome = false;
+                    }
+        }
+        return outcome;
+    }
+       
+    public synchronized static boolean sendMessageToPlayer(Player p,String P, String message){ //new
+        boolean outcome = true;
+        Area a = getArea(p.location);
+        PrintWriter out;
+        if (a != null){
+            for (Player areaPlayers : a.players.values()){
+                try {
+                    if (!areaPlayers.name.equalsIgnoreCase(p.name)&& areaPlayers.name.equals(P)){
+                        Socket psock = areaPlayers.socket;
+                        out = new PrintWriter(psock.getOutputStream(), true);
+                        out.println(p.name + " ]SHHHHH... " + message);
+                    }
+                } catch (IOException e) {
+                    outcome = false;
+                }
+            }
+        } else {
+            outcome = false;
+        }
+        return outcome;
+    }
+    
+    public synchronized static boolean sendEmotetoPlayer(Player p,String P, String emote){ //new
+        String emoteOut ="";
+        boolean outcome = true;
+        Area a = getArea(p.location);
+        PrintWriter out;
+        switch(emote){
+            case "wink":
+                emoteOut += "*" + p.name + " winks at you ;)";
+                break;
+            case "smile":
+                emoteOut += "*" + p.name + " smiles at you :)";
+                break;
+            case "frown":
+                emoteOut += "*" + p.name + " frowns at you :(";
+                break;
+            default:
+                
+                break;
+        }
+        if (a != null){
+            for (Player areaPlayers : a.players.values()){
+                try {
+                    if (!areaPlayers.name.equalsIgnoreCase(p.name)&& areaPlayers.name.equals(P)){
+                        Socket psock = areaPlayers.socket;
+                        out = new PrintWriter(psock.getOutputStream(), true);
+                        out.println(emoteOut);
+                    }
+                } catch (IOException e) {
+                    outcome = false;
+                }
+            }
+        } else {
+            outcome = false;
+        }
+        return outcome;
+    }    
+    
+    public synchronized static void getItem(String item,Player p){
+        Area a = getArea(p.location);
+        if(a.items.contains(item)){
+           p.inventory.add(item);
+           a.items.remove(item);
+           writeArea(a);
+        }
+    } 
+    
+    public synchronized static void dropItem(String item,Player p){
+        Area a = getArea(p.location);
+        if(p.inventory.contains(item)){
+            p.inventory.remove(item);
+            a.items.add(item);
+            writeArea(a);
+        }
+        
+            
+    } 
+    
+    public synchronized static Player loadPlayer(String name){
+        Player x = readPlayerFromFile(name);
+        return x;
+    }    
+    
+    public synchronized static void listInventory(PrintWriter out,Player p){
+        out.print("Current Inventory ----[ | ");
+        if(!p.inventory.isEmpty()){
+            p.inventory.forEach((x) -> {
+                out.print(x + " | ");
+            }); 
+            out.println(" ]");            
+        }else{
+            out.println("| ]");
+        }
+    }    
+    
+    public synchronized static void helpMe(PrintWriter out,String command,boolean err){
+        String[] helpLine = {"",""};
+        switch(command){
+            case "look":
+                helpLine[0] = "Inspect surroundings/others/items";
+                helpLine[1] = "Command format is: look <name> || look <direction> || look";
+                break;
+            case "walk":
+                helpLine[0] = "Walk/go about";
+                helpLine[1] = "Command format is: walk/go <direction>";
+                break;    
+            case "say":
+                helpLine[0] = "Speak to room";
+                helpLine[1] = "Command format is: say <message>";
+                break;
+            case "whisper":
+                helpLine[0] = "Speak to person";
+                helpLine[1] = "Command format is: whisper <name> <message>";
+                break;
+            case "describe":
+                helpLine[0] = "Describes yourself for the others";
+                helpLine[1] = "Command format is: describe <message>";
+                break;
+            case "take":
+            case "get":
+                helpLine[0] = "Retrieve item from room";
+                helpLine[1] = "Command format is: take/get <item>";
+                break;    
+            case "drop":
+                helpLine[0] = "Drop item in room";
+                helpLine[1] = "Command format is: drop <item>";
+                break;    
+            case "emote":
+                helpLine[0] = "Sends emote to person in room";
+                helpLine[1] = "Command format is: emote <person> <emote>";
+                break;    
+            case "stats":
+                helpLine[0] = "See player stats";
+                helpLine[1] = "Command format is: stats|/s || stats|/s <person> ";
+                break;    
+            case "help":
+                helpLine[0] = "See command info";
+                helpLine[1] = "Command format is: help <command> ";
+                break;    
+        }
+        if(err)
+            out.println(helpLine[1]);
+        else{
+            for(String x : helpLine){
+                out.println(x);
+            }    
+        }
+    }  
+    
+    public synchronized static boolean checkDirection(Player p, String direction){
+        boolean outcome = false;
+        String[] dirList = {"north","south","wet","east","up","down"};
+        String[] dirAbbr = {"n","s","w","e","u","d"};
+        int areaIndex = -1;
+        direction = direction.trim().toLowerCase();
+        for (int i = 0; i < NUMBER_DIRECTIONS; i++){
+            if (dirList[i].equals(direction) || dirAbbr[i].equals(direction)){
+                areaIndex = i;
+                break;
+            }
+        }
+        if (areaIndex >= 0){
+            Area a = getArea(p.location);
+            if (a != null){
+                outcome = true;
+            }
+        }
+        return outcome;        
+    }
+
+    public synchronized static void doLook(PrintWriter out,Player p,String direction) {
+        String[] dirList = {"north","south","west","east","up","down"};
+        String[] dirAbbr = {"n","s","w","e","u","d"};
+        int areaIndex = -1;
+        direction = direction.trim().toLowerCase();
+        for (int i = 0; i < NUMBER_DIRECTIONS; i++){
+            if (dirList[i].equals(direction) || dirAbbr[i].equals(direction)){
+                areaIndex = i;
+                break;
+            }
+        }
+        if (areaIndex >= 0){
+            Area a = getArea(p.location);
+            String curPlayers = "Current Players  -> | ";
+            String[] portals = {"north","south","west","east","up","down"};
+            String curExits = "Available Exits -> | ";
+            if (a != null){
+                if (a.exits[areaIndex] > 0){
+                    Area b = getArea(a.exits[areaIndex]);
+                    
+                    out.println(b.description);
+                    for(String name : b.players.keySet()){
+                        curPlayers += name + " | ";
+                    }
+                    for (int i = 0; i < NUMBER_DIRECTIONS; i++){
+                        if (b.exits[i] != 0){
+                            curExits += portals[i] + " | ";
+                        }
+                    }
+                    out.println(curExits);
+                    out.println(curPlayers);
+                    }
+                else if(a.exits[areaIndex] == 0)
+                    out.println("Nothing to see.");
+            }
+
+        }
+
+    }    
 }
