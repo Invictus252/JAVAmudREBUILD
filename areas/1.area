@@ -1,0 +1,6 @@
+[title]Main Street
+[description]You are standing on a cobblestone street in the Town of Mosstown. Ramshackle buildings line both sides of the street.
+[comment]These exits could change later in the design.
+[items]item1,item2
+[exits]0,0,2,3,0,0
+[ID]1

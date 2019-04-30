@@ -1,5 +1,6 @@
 package mclamud;
 
+import Sorting.BubbleSort;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.Socket;
@@ -88,6 +89,10 @@ public class PlayerThread implements Runnable {
                     } else {
                         out.println("Command format is: walk/go <direction>");
                     }
+                    break;
+                case "bsort":
+                    int[] input = { 4, 2, 9, 6, 23, 12, 34, 0, 1 };
+                    BubbleSort.bubble_srt(out,input);
                     break;
                 case "describe":
                     if (tokens.length > 1){

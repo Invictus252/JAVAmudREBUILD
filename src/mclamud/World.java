@@ -35,7 +35,7 @@ public class World {
 
             if (outcome && out != null){
                 String[] portals = {"north","south","east","west","up","down"};   
-                out.println(a.title.trim());
+                out.println(Ansi.BLUE + a.title.trim() + Ansi.SANE);
                 out.println(a.description);
 
                 //List the available exits    
@@ -713,6 +713,7 @@ public class World {
 
         }
 
-    }    
+    }   
+    
     
 }
